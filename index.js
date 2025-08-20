@@ -147,18 +147,238 @@ async function makeApiRequestWithCookies(url, options = {}) {
 
 // Health check
 app.get('/', (req, res) => {
-    res.json({
-        status: 'success',
-        message: 'MovieBox API Server is running',
-        version: '1.0.0',
-        endpoints: [
-            'GET /api/homepage - Get homepage content',
-            'GET /api/trending - Get trending movies and TV series',
-            'GET /api/search/:query - Search for movies and TV series',
-            'GET /api/info/:movieId - Get detailed info about a movie/series',
-            'GET /api/sources/:movieId - Get streaming sources for a movie/series'
-        ]
-    });
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MovieBox API Documentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .endpoint {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 5px solid #667eea;
+        }
+        
+        .endpoint h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+        
+        .endpoint p {
+            margin-bottom: 15px;
+            color: #666;
+        }
+        
+        .example-link {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-size: 0.9em;
+            margin: 5px 5px 5px 0;
+            transition: background 0.3s;
+        }
+        
+        .example-link:hover {
+            background: #5a67d8;
+        }
+        
+        .status {
+            display: inline-block;
+            background: #48bb78;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        
+        .features {
+            background: #e6fffa;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            border-left: 5px solid #48bb78;
+        }
+        
+        .features h3 {
+            color: #48bb78;
+            margin-bottom: 15px;
+        }
+        
+        .features ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .features li {
+            padding: 5px 0;
+            color: #2d3748;
+        }
+        
+        .features li:before {
+            content: "✓ ";
+            color: #48bb78;
+            font-weight: bold;
+        }
+        
+        @media (max-width: 600px) {
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+            
+            .endpoint {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎬 MovieBox API</h1>
+            <p>Complete access to movies, TV series, and streaming sources</p>
+        </div>
+        
+        <div class="content">
+            <div class="features">
+                <h3>Features</h3>
+                <ul>
+                    <li>Real movie and TV series search with live results</li>
+                    <li>Detailed movie information with metadata</li>
+                    <li>Working download links in multiple qualities (360p - 1080p)</li>
+                    <li>Trending content and homepage data</li>
+                    <li>Proxy download endpoints to bypass restrictions</li>
+                    <li>Mobile app headers for authentic data access</li>
+                </ul>
+            </div>
+            
+            <div class="endpoint">
+                <h3>🔍 Search Movies & TV Series</h3>
+                <p>Search for any movie or TV series and get real results from MovieBox database.</p>
+                <span class="status">WORKING</span>
+                <br><br>
+                <a href="/api/search/avatar" class="example-link">Search: Avatar</a>
+                <a href="/api/search/spider-man" class="example-link">Search: Spider-Man</a>
+                <a href="/api/search/wednesday" class="example-link">Search: Wednesday</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>📋 Movie Information</h3>
+                <p>Get detailed information about any movie including cast, description, ratings, and metadata.</p>
+                <span class="status">WORKING</span>
+                <br><br>
+                <a href="/api/info/8906247916759695608" class="example-link">Avatar Info</a>
+                <a href="/api/info/3815343854912427320" class="example-link">Spider-Man Info</a>
+                <a href="/api/info/9028867555875774472" class="example-link">Wednesday Info</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>📥 Download Sources</h3>
+                <p>Get real download links with multiple quality options. Includes both direct URLs and proxy URLs that work in browsers.</p>
+                <span class="status">WORKING</span>
+                <br><br>
+                <a href="/api/sources/8906247916759695608" class="example-link">Avatar Downloads</a>
+                <a href="/api/sources/3815343854912427320" class="example-link">Spider-Man Downloads</a>
+                <a href="/api/sources/9028867555875774472" class="example-link">Wednesday Downloads</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>🏠 Homepage Content</h3>
+                <p>Get the latest homepage content from MovieBox including featured movies and recommendations.</p>
+                <span class="status">WORKING</span>
+                <br><br>
+                <a href="/api/homepage" class="example-link">View Homepage</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>🔥 Trending Content</h3>
+                <p>Get currently trending movies and TV series with real-time data from MovieBox.</p>
+                <span class="status">WORKING</span>
+                <br><br>
+                <a href="/api/trending" class="example-link">View Trending</a>
+            </div>
+            
+            <div class="endpoint">
+                <h3>⚡ Download Proxy</h3>
+                <p>Proxy endpoint that adds proper headers to bypass CDN restrictions for direct downloads.</p>
+                <span class="status">WORKING</span>
+                <br><br>
+                <p><strong>Usage:</strong> <code>/api/download/[encoded-video-url]</code></p>
+                <p><small>Note: Video URLs are automatically provided in the sources endpoint response</small></p>
+            </div>
+            
+            <div style="text-align: center; margin-top: 30px; padding: 20px; background: #f7fafc; border-radius: 10px;">
+                <h3 style="color: #2d3748; margin-bottom: 10px;">API Status</h3>
+                <p><strong>All 6 endpoints operational</strong> with real MovieBox data</p>
+                <p style="color: #666; font-size: 0.9em; margin-top: 10px;">
+                    Successfully converted from Python moviebox-api to JavaScript Express server<br>
+                    with region bypass and mobile authentication headers
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>`;
+    
+    res.send(html);
 });
 
 // Homepage content
