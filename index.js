@@ -332,13 +332,15 @@ app.get('/api/sources/:movieId', async (req, res) => {
         
         const content = processApiResponse(response);
         
-        // Process the sources to extract direct download links
-        if (content && content.mediaFileList) {
-            const sources = content.mediaFileList.map(file => ({
-                quality: file.quality || 'Unknown',
-                url: file.url,
+        // Process the sources to extract direct download links with proxy URLs
+        if (content && content.downloads) {
+            const sources = content.downloads.map(file => ({
+                id: file.id,
+                quality: file.resolution || 'Unknown',
+                directUrl: file.url, // Original URL (blocked in browser)
+                proxyUrl: `http://localhost:5000/api/download/${encodeURIComponent(file.url)}`, // Proxied URL with proper headers
                 size: file.size,
-                format: file.format || 'mp4'
+                format: 'mp4'
             }));
             
             content.processedSources = sources;
@@ -353,6 +355,52 @@ app.get('/api/sources/:movieId', async (req, res) => {
         res.status(500).json({
             status: 'error',
             message: 'Failed to fetch streaming sources',
+            error: error.message
+        });
+    }
+});
+
+// Download proxy endpoint - adds proper headers to bypass CDN restrictions
+app.get('/api/download/*', async (req, res) => {
+    try {
+        const downloadUrl = decodeURIComponent(req.url.replace('/api/download/', '')); // Get and decode the URL
+        
+        if (!downloadUrl || (!downloadUrl.startsWith('https://bcdnw.hakunaymatata.com/') && !downloadUrl.startsWith('https://valiw.hakunaymatata.com/'))) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Invalid download URL'
+            });
+        }
+        
+        console.log(`Proxying download: ${downloadUrl}`);
+        
+        // Make request with proper headers that allow CDN access
+        const response = await axios({
+            method: 'GET',
+            url: downloadUrl,
+            responseType: 'stream',
+            headers: {
+                'User-Agent': 'okhttp/4.12.0',
+                'Referer': 'https://fmoviesunblocked.net/',
+                'Origin': 'https://fmoviesunblocked.net'
+            }
+        });
+        
+        // Forward the content-type and other relevant headers
+        res.set({
+            'Content-Type': response.headers['content-type'],
+            'Content-Length': response.headers['content-length'],
+            'Content-Disposition': `attachment; filename="movie.mp4"`
+        });
+        
+        // Pipe the video stream to the response
+        response.data.pipe(res);
+        
+    } catch (error) {
+        console.error('Download proxy error:', error.message);
+        res.status(500).json({
+            status: 'error',
+            message: 'Failed to proxy download',
             error: error.message
         });
     }
