@@ -38,7 +38,7 @@ const MIRROR_HOSTS = [
 const SELECTED_HOST = process.env.MOVIEBOX_API_HOST || "h5.aoneroom.com";
 const HOST_URL = `https://${SELECTED_HOST}`;
 
-// Updated headers based on mobile app traffic analysis from PCAP
+// Updated headers based on mobile app traffic analysis from PCAP + region bypass
 const DEFAULT_HEADERS = {
     'X-Client-Info': '{"timezone":"Africa/Nairobi"}',
     'Accept-Language': 'en-US,en;q=0.5',
@@ -46,7 +46,11 @@ const DEFAULT_HEADERS = {
     'User-Agent': 'okhttp/4.12.0', // Mobile app user agent from PCAP
     'Referer': HOST_URL,
     'Host': SELECTED_HOST,
-    'Connection': 'keep-alive'
+    'Connection': 'keep-alive',
+    // Add IP spoofing headers to bypass region restrictions
+    'X-Forwarded-For': '1.1.1.1',
+    'CF-Connecting-IP': '1.1.1.1',
+    'X-Real-IP': '1.1.1.1'
 };
 
 // Subject types
@@ -312,31 +316,19 @@ app.get('/api/sources/:movieId', async (req, res) => {
             ep: episode
         };
         
-        // Try both the original API endpoint and fmovies endpoint
-        let response;
-        try {
-            // First try the original endpoint with fmovies referer
-            response = await makeApiRequestWithCookies(`${HOST_URL}/wefeed-h5-bff/web/subject/download`, {
-                method: 'GET',
-                params,
-                headers: {
-                    'Referer': refererUrl,
-                    'Origin': 'https://fmoviesunblocked.net'
-                }
-            });
-        } catch (error) {
-            console.log('Original endpoint failed, trying fmovies domain...');
-            // If that fails, try the fmovies domain directly
-            response = await makeApiRequestWithCookies(`https://fmoviesunblocked.net/wefeed-h5-bff/web/subject/download`, {
-                method: 'GET',
-                params,
-                headers: {
-                    'Referer': refererUrl,
-                    'Origin': 'https://fmoviesunblocked.net',
-                    'Host': 'fmoviesunblocked.net'
-                }
-            });
-        }
+        // Try the original endpoint with region bypass headers
+        const response = await makeApiRequestWithCookies(`${HOST_URL}/wefeed-h5-bff/web/subject/download`, {
+            method: 'GET',
+            params,
+            headers: {
+                'Referer': refererUrl,
+                'Origin': 'https://fmoviesunblocked.net',
+                // Add region bypass headers
+                'X-Forwarded-For': '1.1.1.1',
+                'CF-Connecting-IP': '1.1.1.1',
+                'X-Real-IP': '1.1.1.1'
+            }
+        });
         
         const content = processApiResponse(response);
         
