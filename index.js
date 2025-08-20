@@ -34,16 +34,19 @@ const MIRROR_HOSTS = [
     "netnaija.video"
 ];
 
-const SELECTED_HOST = process.env.MOVIEBOX_API_HOST || MIRROR_HOSTS[2]; // Try moviebox.pk instead
+// Use the main host but with mobile app headers from PCAP analysis
+const SELECTED_HOST = process.env.MOVIEBOX_API_HOST || "h5.aoneroom.com";
 const HOST_URL = `https://${SELECTED_HOST}`;
 
+// Updated headers based on mobile app traffic analysis from PCAP
 const DEFAULT_HEADERS = {
     'X-Client-Info': '{"timezone":"Africa/Nairobi"}',
     'Accept-Language': 'en-US,en;q=0.5',
     'Accept': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:137.0) Gecko/20100101 Firefox/137.0',
+    'User-Agent': 'okhttp/4.12.0', // Mobile app user agent from PCAP
     'Referer': HOST_URL,
-    'Host': SELECTED_HOST
+    'Host': SELECTED_HOST,
+    'Connection': 'keep-alive'
 };
 
 // Subject types
@@ -296,8 +299,8 @@ app.get('/api/sources/:movieId', async (req, res) => {
             throw new Error('Could not get movie detail path for referer header');
         }
         
-        // Create the proper referer header as required by the API
-        const refererUrl = `${HOST_URL}/movies/${detailPath}`;
+        // Create the proper referer header - use main website domain for referer
+        const refererUrl = `https://h5.aoneroom.com/movies/${detailPath}`;
         console.log(`Using referer: ${refererUrl}`);
         
         const params = {
