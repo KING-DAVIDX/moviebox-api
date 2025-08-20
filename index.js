@@ -299,9 +299,12 @@ app.get('/api/sources/:movieId', async (req, res) => {
             throw new Error('Could not get movie detail path for referer header');
         }
         
-        // Create the proper referer header - use main website domain for referer
-        const refererUrl = `https://h5.aoneroom.com/movies/${detailPath}`;
+        // Create the proper referer header - try fmovies domain based on user's working link
+        const refererUrl = `https://fmoviesunblocked.net/spa/videoPlayPage/movies/${detailPath}?id=${movieId}&type=/movie/detail`;
         console.log(`Using referer: ${refererUrl}`);
+        
+        // Also try the sources endpoint with fmovies domain
+        console.log('Trying fmovies domain for sources...');
         
         const params = {
             subjectId: movieId,
@@ -309,13 +312,31 @@ app.get('/api/sources/:movieId', async (req, res) => {
             ep: episode
         };
         
-        const response = await makeApiRequestWithCookies(`${HOST_URL}/wefeed-h5-bff/web/subject/download`, {
-            method: 'GET',
-            params,
-            headers: {
-                'Referer': refererUrl
-            }
-        });
+        // Try both the original API endpoint and fmovies endpoint
+        let response;
+        try {
+            // First try the original endpoint with fmovies referer
+            response = await makeApiRequestWithCookies(`${HOST_URL}/wefeed-h5-bff/web/subject/download`, {
+                method: 'GET',
+                params,
+                headers: {
+                    'Referer': refererUrl,
+                    'Origin': 'https://fmoviesunblocked.net'
+                }
+            });
+        } catch (error) {
+            console.log('Original endpoint failed, trying fmovies domain...');
+            // If that fails, try the fmovies domain directly
+            response = await makeApiRequestWithCookies(`https://fmoviesunblocked.net/wefeed-h5-bff/web/subject/download`, {
+                method: 'GET',
+                params,
+                headers: {
+                    'Referer': refererUrl,
+                    'Origin': 'https://fmoviesunblocked.net',
+                    'Host': 'fmoviesunblocked.net'
+                }
+            });
+        }
         
         const content = processApiResponse(response);
         
