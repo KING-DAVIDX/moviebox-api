@@ -49,19 +49,17 @@ const DOWNLOAD_MIRRORS = [
 
 // Updated headers based on mobile app traffic analysis from PCAP + region bypass
 const DEFAULT_HEADERS = {
-    'X-Client-Info': '{"timezone":"America/New_York"}',
+    'X-Client-Info': '{"timezone":"Africa/Nairobi"}',
     'Accept-Language': 'en-US,en;q=0.5',
     'Accept': 'application/json',
     'User-Agent': 'okhttp/4.12.0', // Mobile app user agent from PCAP
     'Referer': HOST_URL,
     'Host': SELECTED_HOST,
     'Connection': 'keep-alive',
-    // Enhanced region bypass headers
-    'X-Forwarded-For': '8.8.8.8',
-    'CF-Connecting-IP': '8.8.8.8',
-    'X-Real-IP': '8.8.8.8',
-    'CF-IPCountry': 'US',
-    'CloudFront-Viewer-Country': 'US'
+    // Add IP spoofing headers to bypass region restrictions
+    'X-Forwarded-For': '1.1.1.1',
+    'CF-Connecting-IP': '1.1.1.1',
+    'X-Real-IP': '1.1.1.1'
 };
 
 // Subject types
@@ -556,8 +554,12 @@ app.get('/api/sources/:movieId', async (req, res) => {
             throw new Error('Could not get movie detail path for referer header');
         }
         
-        // Use simple referer format based on Python library approach  
-        console.log('Getting sources with proper referer...');
+        // Create the proper referer header - try fmovies domain based on user's working link
+        const refererUrl = `https://fmoviesunblocked.net/spa/videoPlayPage/movies/${detailPath}?id=${movieId}&type=/movie/detail`;
+        console.log(`Using referer: ${refererUrl}`);
+        
+        // Also try the sources endpoint with fmovies domain
+        console.log('Trying fmovies domain for sources...');
         
         const params = {
             subjectId: movieId,
@@ -565,15 +567,18 @@ app.get('/api/sources/:movieId', async (req, res) => {
             ep: episode
         };
         
-        // Use proper referer header based on Python library approach
-        const refererHeader = {
-            'Referer': `${HOST_URL}/movies/${detailPath}`
-        };
-        
+        // Try the original endpoint with region bypass headers
         const response = await makeApiRequestWithCookies(`${HOST_URL}/wefeed-h5-bff/web/subject/download`, {
             method: 'GET',
             params,
-            headers: refererHeader
+            headers: {
+                'Referer': refererUrl,
+                'Origin': 'https://fmoviesunblocked.net',
+                // Add region bypass headers
+                'X-Forwarded-For': '1.1.1.1',
+                'CF-Connecting-IP': '1.1.1.1',
+                'X-Real-IP': '1.1.1.1'
+            }
         });
         
         const content = processApiResponse(response);
