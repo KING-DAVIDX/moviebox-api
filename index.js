@@ -556,12 +556,8 @@ app.get('/api/sources/:movieId', async (req, res) => {
             throw new Error('Could not get movie detail path for referer header');
         }
         
-        // Create the proper referer header - try fmovies domain based on user's working link
-        const refererUrl = `https://fmoviesunblocked.net/spa/videoPlayPage/movies/${detailPath}?id=${movieId}&type=/movie/detail`;
-        console.log(`Using referer: ${refererUrl}`);
-        
-        // Also try the sources endpoint with fmovies domain
-        console.log('Trying fmovies domain for sources...');
+        // Use simple referer format based on Python library approach  
+        console.log('Getting sources with proper referer...');
         
         const params = {
             subjectId: movieId,
@@ -569,89 +565,18 @@ app.get('/api/sources/:movieId', async (req, res) => {
             ep: episode
         };
         
-        // Enhanced sources request with improved region bypass
-        const enhancedHeaders = {
-            'Referer': refererUrl,
-            'Origin': 'https://fmoviesunblocked.net',
-            // Enhanced region bypass headers
-            'X-Forwarded-For': '8.8.8.8',
-            'CF-Connecting-IP': '8.8.8.8',
-            'X-Real-IP': '8.8.8.8',
-            'CF-IPCountry': 'US',
-            'CloudFront-Viewer-Country': 'US',
-            'X-Client-Info': '{"timezone":"America/New_York"}'
+        // Use proper referer header based on Python library approach
+        const refererHeader = {
+            'Referer': `${HOST_URL}/movies/${detailPath}`
         };
         
-        let response;
-        let content = null;
+        const response = await makeApiRequestWithCookies(`${HOST_URL}/wefeed-h5-bff/web/subject/download`, {
+            method: 'GET',
+            params,
+            headers: refererHeader
+        });
         
-        // Try multiple mirror hosts for download sources
-        let lastError = null;
-        
-        for (const mirror of DOWNLOAD_MIRRORS) {
-            try {
-                console.log(`Trying mirror: ${mirror}`);
-                const mirrorUrl = `https://${mirror}`;
-                
-                response = await axiosInstance({
-                    method: 'GET',
-                    url: `${mirrorUrl}/wefeed-h5-bff/web/subject/download`,
-                    params: params,
-                    headers: {
-                        ...DEFAULT_HEADERS,
-                        ...enhancedHeaders,
-                        'Host': mirror,
-                        'Referer': mirrorUrl
-                    },
-                    withCredentials: true
-                });
-                
-                content = processApiResponse(response);
-                console.log(`Success with mirror: ${mirror}`);
-                break; // Success, exit loop
-                
-            } catch (error) {
-                console.log(`Mirror ${mirror} failed: ${error.response?.status || error.message}`);
-                lastError = error;
-                
-                // For TV series, try alternative parameters on this mirror
-                if (season > 0) {
-                    try {
-                        const altParams = {
-                            subjectId: movieId,
-                            season: season,
-                            episode: episode
-                        };
-                        
-                        response = await axiosInstance({
-                            method: 'GET', 
-                            url: `${mirrorUrl}/wefeed-h5-bff/web/subject/download`,
-                            params: altParams,
-                            headers: {
-                                ...DEFAULT_HEADERS,
-                                ...enhancedHeaders,
-                                'Host': mirror,
-                                'Referer': mirrorUrl
-                            },
-                            withCredentials: true
-                        });
-                        
-                        content = processApiResponse(response);
-                        console.log(`Success with mirror ${mirror} using alternative params`);
-                        break; // Success, exit loop
-                        
-                    } catch (altError) {
-                        console.log(`Alternative params also failed on ${mirror}`);
-                        lastError = altError;
-                    }
-                }
-                continue; // Try next mirror
-            }
-        }
-        
-        if (!content) {
-            throw lastError || new Error('All mirror hosts failed');
-        }
+        const content = processApiResponse(response);
         
         // Process the sources to extract direct download links with proxy URLs
         if (content && content.downloads) {
