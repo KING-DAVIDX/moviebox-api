@@ -342,11 +342,18 @@ app.get('/', (req, res) => {
             <div class="endpoint">
                 <h3>📥 Download Sources</h3>
                 <p>Get real download links with multiple quality options. Includes both direct URLs and proxy URLs that work in browsers.</p>
+                <p><strong>For Movies:</strong> Use movie ID only</p>
+                <p><strong>For TV Episodes:</strong> Add season and episode parameters: <code>?season=1&episode=1</code></p>
                 <span class="status">WORKING</span>
                 <br><br>
-                <a href="/api/sources/8906247916759695608" class="example-link">Avatar Downloads</a>
-                <a href="/api/sources/3815343854912427320" class="example-link">Spider-Man Downloads</a>
-                <a href="/api/sources/9028867555875774472" class="example-link">Wednesday Downloads</a>
+                <strong>Movie Downloads:</strong><br>
+                <a href="/api/sources/8906247916759695608" class="example-link">Avatar Movie</a>
+                <a href="/api/sources/3815343854912427320" class="example-link">Spider-Man Movie</a>
+                <br><br>
+                <strong>TV Episode Downloads:</strong><br>
+                <a href="/api/sources/9028867555875774472?season=1&episode=1" class="example-link">Wednesday S1E1</a>
+                <a href="/api/sources/9028867555875774472?season=1&episode=2" class="example-link">Wednesday S1E2</a>
+                <a href="/api/sources/9028867555875774472?season=1&episode=3" class="example-link">Wednesday S1E3</a>
             </div>
             
             <div class="endpoint">
