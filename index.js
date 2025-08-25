@@ -596,7 +596,7 @@ app.get('/api/sources/:movieId', async (req, res) => {
                 id: file.id,
                 quality: file.resolution || 'Unknown',
                 directUrl: file.url, // Original URL (blocked in browser)
-                proxyUrl: `http://localhost:5000/api/download/${encodeURIComponent(file.url)}`, // Proxied URL with proper headers
+                proxyUrl: `${req.protocol}://${req.get('host')}/api/download/${encodeURIComponent(file.url)}`, // Proxied URL with proper headers
                 size: file.size,
                 format: 'mp4'
             }));
