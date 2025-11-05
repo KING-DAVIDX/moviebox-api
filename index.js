@@ -47,6 +47,9 @@ const DOWNLOAD_MIRRORS = [
     "h5.aoneroom.com"
 ];
 
+// Store for movie names
+const movieNameStore = new Map();
+
 // Updated headers based on mobile app traffic analysis from PCAP + region bypass
 const DEFAULT_HEADERS = {
     'X-Client-Info': '{"timezone":"Africa/Nairobi"}',
@@ -87,6 +90,38 @@ function processApiResponse(response) {
         return response.data.data;
     }
     return response.data || response;
+}
+
+function sanitizeFilename(name) {
+    if (!name) return 'movie';
+    return name
+        .replace(/[^a-zA-Z0-9\s]/g, '') // Remove special characters
+        .replace(/\s+/g, '_') // Replace spaces with underscores
+        .substring(0, 100); // Limit length
+}
+
+function fixSeasonNumbering(seasons) {
+    if (!seasons || !Array.isArray(seasons)) return seasons;
+    
+    return seasons.map((season, index) => {
+        // Fix season numbering - sometimes they start from 2 instead of 1
+        // If we have consecutive seasons but numbering is off, fix it
+        const fixedSeason = { ...season };
+        
+        // If this is the first season but has number > 1, fix it
+        if (index === 0 && season.seasonNumber > 1) {
+            fixedSeason.seasonNumber = 1;
+        } 
+        // For subsequent seasons, ensure they follow sequentially
+        else if (index > 0) {
+            const prevSeason = seasons[index - 1];
+            if (season.seasonNumber !== prevSeason.seasonNumber + 1) {
+                fixedSeason.seasonNumber = prevSeason.seasonNumber + 1;
+            }
+        }
+        
+        return fixedSeason;
+    });
 }
 
 async function ensureCookiesAreAssigned() {
@@ -152,9 +187,35 @@ async function makeApiRequestWithCookies(url, options = {}) {
     }
 }
 
-// Helper function to sanitize filename
-function sanitizeFilename(name) {
-    return name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+// Store movie name for later use in download
+function storeMovieName(movieId, movieInfo) {
+    if (!movieInfo || !movieInfo.subject) return;
+    
+    const subject = movieInfo.subject;
+    const name = subject.name || subject.title || `movie_${movieId}`;
+    movieNameStore.set(movieId, {
+        name: name,
+        type: subject.subjectType === SubjectType.TV_SERIES ? 'tv' : 'movie',
+        season: subject.seasonNumber || 0,
+        episode: subject.episodeNumber || 0
+    });
+}
+
+// Get movie name for download filename
+function getMovieNameForDownload(movieId, season = 0, episode = 0) {
+    const stored = movieNameStore.get(movieId);
+    if (!stored) return 'movie';
+    
+    let filename = sanitizeFilename(stored.name);
+    
+    // Add season and episode info for TV series
+    if (stored.type === 'tv' || season > 0) {
+        const actualSeason = season || stored.season || 1;
+        const actualEpisode = episode || stored.episode || 1;
+        filename += `_S${actualSeason.toString().padStart(2, '0')}E${actualEpisode.toString().padStart(2, '0')}`;
+    }
+    
+    return filename;
 }
 
 // API Routes
@@ -520,6 +581,14 @@ app.get('/api/info/:movieId', async (req, res) => {
         
         const content = processApiResponse(response);
         
+        // Store movie name for download filename
+        storeMovieName(movieId, content);
+        
+        // Fix season numbering if this is a TV series
+        if (content.subject && content.subject.seasons) {
+            content.subject.seasons = fixSeasonNumbering(content.subject.seasons);
+        }
+        
         // Add easily accessible thumbnail URLs
         if (content.subject) {
             if (content.subject.cover && content.subject.cover.url) {
@@ -527,25 +596,6 @@ app.get('/api/info/:movieId', async (req, res) => {
             }
             if (content.subject.stills && content.subject.stills.url && !content.subject.thumbnail) {
                 content.subject.thumbnail = content.subject.stills.url;
-            }
-            
-            // Fix season ordering - ensure seasons are displayed in correct order
-            if (content.subject.seasons && Array.isArray(content.subject.seasons)) {
-                // Sort seasons by season number to ensure correct order
-                content.subject.seasons.sort((a, b) => {
-                    const seasonA = parseInt(a.season || a.name?.match(/Season (\d+)/i)?.[1] || 0);
-                    const seasonB = parseInt(b.season || b.name?.match(/Season (\d+)/i)?.[1] || 0);
-                    return seasonA - seasonB;
-                });
-                
-                // Re-index seasons starting from 1
-                content.subject.seasons.forEach((season, index) => {
-                    season.displayOrder = index + 1;
-                    // Ensure season number is correctly set
-                    if (!season.season) {
-                        season.season = index + 1;
-                    }
-                });
             }
         }
         
@@ -570,7 +620,7 @@ app.get('/api/sources/:movieId', async (req, res) => {
         const season = parseInt(req.query.season) || 0; // Movies use 0 for season
         const episode = parseInt(req.query.episode) || 0; // Movies use 0 for episode
         
-        // First get movie details to get the detailPath for the referer and movie name
+        // First get movie details to get the detailPath for the referer and store the name
         console.log(`Getting sources for movieId: ${movieId}`);
         
         const infoResponse = await makeApiRequestWithCookies(`${HOST_URL}/wefeed-h5-bff/web/subject/detail`, {
@@ -580,7 +630,9 @@ app.get('/api/sources/:movieId', async (req, res) => {
         
         const movieInfo = processApiResponse(infoResponse);
         const detailPath = movieInfo?.subject?.detailPath;
-        const movieName = movieInfo?.subject?.name || 'movie';
+        
+        // Store movie name for download filename
+        storeMovieName(movieId, movieInfo);
         
         if (!detailPath) {
             throw new Error('Could not get movie detail path for referer header');
@@ -617,32 +669,14 @@ app.get('/api/sources/:movieId', async (req, res) => {
         
         // Process the sources to extract direct download links with proxy URLs
         if (content && content.downloads) {
-            const sources = content.downloads.map(file => {
-                // Create filename based on movie name, season, episode, and quality
-                let filename = sanitizeFilename(movieName);
-                
-                // Add season and episode info for TV series
-                if (season > 0 && episode > 0) {
-                    filename += `_s${season.toString().padStart(2, '0')}e${episode.toString().padStart(2, '0')}`;
-                }
-                
-                // Add quality info
-                if (file.resolution) {
-                    filename += `_${file.resolution}`;
-                }
-                
-                filename += '.mp4';
-                
-                return {
-                    id: file.id,
-                    quality: file.resolution || 'Unknown',
-                    directUrl: file.url, // Original URL (blocked in browser)
-                    proxyUrl: `${req.protocol}://${req.get('host')}/api/download/${encodeURIComponent(file.url)}?filename=${encodeURIComponent(filename)}`, // Proxied URL with proper headers and filename
-                    filename: filename,
-                    size: file.size,
-                    format: 'mp4'
-                };
-            });
+            const sources = content.downloads.map(file => ({
+                id: file.id,
+                quality: file.resolution || 'Unknown',
+                directUrl: file.url, // Original URL (blocked in browser)
+                proxyUrl: `${req.protocol}://${req.get('host')}/api/download/${encodeURIComponent(file.url)}?movieId=${movieId}&season=${season}&episode=${episode}`, // Proxied URL with proper headers and movie info
+                size: file.size,
+                format: 'mp4'
+            }));
             
             content.processedSources = sources;
         }
@@ -664,12 +698,8 @@ app.get('/api/sources/:movieId', async (req, res) => {
 // Download proxy endpoint - adds proper headers to bypass CDN restrictions
 app.get('/api/download/*', async (req, res) => {
     try {
-        // Extract the download URL and filename from request
-        const pathParts = req.url.replace('/api/download/', '').split('?');
-        const downloadUrl = decodeURIComponent(pathParts[0]); // Get and decode the URL
-        
-        // Get filename from query parameter or use default
-        const filename = req.query.filename || 'movie.mp4';
+        const downloadUrl = decodeURIComponent(req.url.replace('/api/download/', '').split('?')[0]); // Get and decode the URL
+        const { movieId, season, episode } = req.query;
         
         if (!downloadUrl || (!downloadUrl.startsWith('https://bcdnw.hakunaymatata.com/') && !downloadUrl.startsWith('https://valiw.hakunaymatata.com/'))) {
             return res.status(400).json({
@@ -679,7 +709,10 @@ app.get('/api/download/*', async (req, res) => {
         }
         
         console.log(`Proxying download: ${downloadUrl}`);
-        console.log(`Saving as: ${filename}`);
+        
+        // Get movie name for filename
+        const movieName = movieId ? getMovieNameForDownload(movieId, parseInt(season) || 0, parseInt(episode) || 0) : 'movie';
+        const filename = `${movieName}.mp4`;
         
         // Make request with proper headers that allow CDN access
         const response = await axios({
@@ -697,8 +730,7 @@ app.get('/api/download/*', async (req, res) => {
         res.set({
             'Content-Type': response.headers['content-type'],
             'Content-Length': response.headers['content-length'],
-            'Content-Disposition': `attachment; filename="${filename}"`,
-            'Cache-Control': 'no-cache'
+            'Content-Disposition': `attachment; filename="${filename}"`
         });
         
         // Pipe the video stream to the response
