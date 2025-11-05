@@ -95,7 +95,7 @@ function processApiResponse(response) {
 function sanitizeFilename(name) {
     if (!name) return 'movie';
     return name
-        .replace(/[^a-zA-Z0-9\s]/g, '') // Remove special characters
+        .replace(/[^a-zA-Z0-9\s\-_.]/g, '') // Remove special characters but keep dashes, underscores, and dots
         .replace(/\s+/g, '_') // Replace spaces with underscores
         .substring(0, 100); // Limit length
 }
@@ -698,8 +698,17 @@ app.get('/api/sources/:movieId', async (req, res) => {
 // Download proxy endpoint - adds proper headers to bypass CDN restrictions
 app.get('/api/download/*', async (req, res) => {
     try {
-        const downloadUrl = decodeURIComponent(req.url.replace('/api/download/', '').split('?')[0]); // Get and decode the URL
-        const { movieId, season, episode } = req.query;
+        // FIXED: Use the same URL parsing as original script
+        const encodedUrl = req.params[0];
+        const downloadUrl = decodeURIComponent(encodedUrl);
+        
+        // Extract query parameters before URL validation
+        const urlParts = req.originalUrl.split('?');
+        const queryString = urlParts.length > 1 ? urlParts[1] : '';
+        const searchParams = new URLSearchParams(queryString);
+        const movieId = searchParams.get('movieId');
+        const season = parseInt(searchParams.get('season')) || 0;
+        const episode = parseInt(searchParams.get('episode')) || 0;
         
         if (!downloadUrl || (!downloadUrl.startsWith('https://bcdnw.hakunaymatata.com/') && !downloadUrl.startsWith('https://valiw.hakunaymatata.com/'))) {
             return res.status(400).json({
@@ -711,7 +720,7 @@ app.get('/api/download/*', async (req, res) => {
         console.log(`Proxying download: ${downloadUrl}`);
         
         // Get movie name for filename
-        const movieName = movieId ? getMovieNameForDownload(movieId, parseInt(season) || 0, parseInt(episode) || 0) : 'movie';
+        const movieName = movieId ? getMovieNameForDownload(movieId, season, episode) : 'movie';
         const filename = `${movieName}.mp4`;
         
         // Make request with proper headers that allow CDN access
