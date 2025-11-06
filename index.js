@@ -3,7 +3,6 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { wrapper } = require('axios-cookiejar-support');
 const { CookieJar } = require('tough-cookie');
-const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -82,6 +81,9 @@ const axiosInstance = wrapper(axios.create({
 let movieboxAppInfo = null;
 let cookiesInitialized = false;
 
+// Cache for movie info to avoid repeated API calls during downloads
+const movieInfoCache = new Map();
+
 // Helper functions
 function processApiResponse(response) {
     if (response.data && response.data.data) {
@@ -90,48 +92,41 @@ function processApiResponse(response) {
     return response.data || response;
 }
 
-function sanitizeFilename(filename) {
-    // Remove or replace characters that are not allowed in filenames
-    return filename
-        .replace(/[<>:"/\\|?*]/g, '_') // Replace invalid characters with underscore
-        .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-        .trim(); // Remove leading/trailing spaces
+function sanitizeFilename(name) {
+    return name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
 }
 
-function generateFilename(contentInfo, season = 0, episode = 0, quality = '') {
+function generateFilename(movieInfo, season = 0, episode = 0, quality = '') {
     let filename = '';
     
-    if (contentInfo && contentInfo.subject) {
-        const { subject } = contentInfo;
+    if (movieInfo && movieInfo.subject) {
+        const subject = movieInfo.subject;
         const title = subject.title || subject.name || 'movie';
-        const year = subject.year || '';
         
-        // Base filename with title and year
-        filename = year ? `${title} (${year})` : title;
-        
-        // Add season and episode for TV series
-        if (season > 0 && episode > 0) {
-            filename += ` S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}`;
-        } else if (season > 0) {
-            filename += ` Season ${season}`;
+        if (subject.subjectType === SubjectType.TV_SERIES && season > 0) {
+            // TV Series format: "Series_Name_S01E01_Quality.mp4"
+            filename = `${sanitizeFilename(title)}_s${season.toString().padStart(2, '0')}e${episode.toString().padStart(2, '0')}`;
+        } else {
+            // Movie format: "Movie_Name_Quality.mp4"
+            filename = sanitizeFilename(title);
         }
         
         // Add quality if available
         if (quality) {
-            filename += ` [${quality}]`;
+            filename += `_${quality}`;
         }
     } else {
-        // Fallback filename
-        filename = season > 0 && episode > 0 
-            ? `series_s${season.toString().padStart(2, '0')}e${episode.toString().padStart(2, '0')}`
-            : 'movie';
-            
+        // Fallback to original naming if no info available
+        filename = 'movie';
+        if (season > 0) {
+            filename += `_s${season.toString().padStart(2, '0')}e${episode.toString().padStart(2, '0')}`;
+        }
         if (quality) {
             filename += `_${quality}`;
         }
     }
     
-    return sanitizeFilename(filename) + '.mp4';
+    return `${filename}.mp4`;
 }
 
 async function ensureCookiesAreAssigned() {
@@ -197,29 +192,9 @@ async function makeApiRequestWithCookies(url, options = {}) {
     }
 }
 
-// Store content info for download requests
-const contentCache = new Map();
-const CACHE_TIMEOUT = 15 * 60 * 1000; // 15 minutes
-
-function cacheContentInfo(movieId, contentInfo) {
-    contentCache.set(movieId, {
-        data: contentInfo,
-        timestamp: Date.now()
-    });
-}
-
-function getCachedContentInfo(movieId) {
-    const cached = contentCache.get(movieId);
-    if (cached && (Date.now() - cached.timestamp) < CACHE_TIMEOUT) {
-        return cached.data;
-    }
-    contentCache.delete(movieId);
-    return null;
-}
-
 // API Routes
 
-// Health check (your existing HTML remains the same)
+// Health check
 app.get('/', (req, res) => {
     const html = `
 <!DOCTYPE html>
@@ -381,7 +356,7 @@ app.get('/', (req, res) => {
                     <li>Trending content and homepage data</li>
                     <li>Proxy download endpoints to bypass restrictions</li>
                     <li>Mobile app headers for authentic data access</li>
-                    <li><strong>NEW:</strong> Smart filenames for downloads</li>
+                    <li><strong>NEW:</strong> Smart filename generation for downloads</li>
                 </ul>
             </div>
             
@@ -453,7 +428,7 @@ app.get('/', (req, res) => {
                 <p style="color: #666; font-size: 0.9em; margin-top: 10px;">
                     Successfully converted from Python moviebox-api to JavaScript Express server<br>
                     with region bypass and mobile authentication headers<br>
-                    <strong>NEW: Smart filename detection for downloads</strong>
+                    <strong>NEW: Smart filename generation for downloads</strong>
                 </p>
             </div>
         </div>
@@ -553,6 +528,9 @@ app.get('/api/search/:query', async (req, res) => {
                 if (item.stills && item.stills.url && !item.thumbnail) {
                     item.thumbnail = item.stills.url;
                 }
+                
+                // Cache the item info for later use in downloads
+                movieInfoCache.set(item.id.toString(), { subject: item });
             });
         }
         
@@ -582,9 +560,6 @@ app.get('/api/info/:movieId', async (req, res) => {
         
         const content = processApiResponse(response);
         
-        // Cache the content info for download requests
-        cacheContentInfo(movieId, content);
-        
         // Add easily accessible thumbnail URLs
         if (content.subject) {
             if (content.subject.cover && content.subject.cover.url) {
@@ -593,6 +568,9 @@ app.get('/api/info/:movieId', async (req, res) => {
             if (content.subject.stills && content.subject.stills.url && !content.subject.thumbnail) {
                 content.subject.thumbnail = content.subject.stills.url;
             }
+            
+            // Cache the movie info for later use in downloads
+            movieInfoCache.set(movieId, content);
         }
         
         res.json({
@@ -613,10 +591,10 @@ app.get('/api/info/:movieId', async (req, res) => {
 app.get('/api/sources/:movieId', async (req, res) => {
     try {
         const { movieId } = req.params;
-        const season = parseInt(req.query.season) || 0;
-        const episode = parseInt(req.query.episode) || 0;
+        const season = parseInt(req.query.season) || 0; // Movies use 0 for season
+        const episode = parseInt(req.query.episode) || 0; // Movies use 0 for episode
         
-        // First get movie details to get the detailPath for the referer and cache the info
+        // First get movie details to get the detailPath for the referer
         console.log(`Getting sources for movieId: ${movieId}`);
         
         const infoResponse = await makeApiRequestWithCookies(`${HOST_URL}/wefeed-h5-bff/web/subject/detail`, {
@@ -627,16 +605,16 @@ app.get('/api/sources/:movieId', async (req, res) => {
         const movieInfo = processApiResponse(infoResponse);
         const detailPath = movieInfo?.subject?.detailPath;
         
-        // Cache the movie info for download requests
-        cacheContentInfo(movieId, movieInfo);
-        
         if (!detailPath) {
             throw new Error('Could not get movie detail path for referer header');
         }
         
-        // Create the proper referer header
+        // Create the proper referer header - try fmovies domain based on user's working link
         const refererUrl = `https://fmoviesunblocked.net/spa/videoPlayPage/movies/${detailPath}?id=${movieId}&type=/movie/detail`;
         console.log(`Using referer: ${refererUrl}`);
+        
+        // Also try the sources endpoint with fmovies domain
+        console.log('Trying fmovies domain for sources...');
         
         const params = {
             subjectId: movieId,
@@ -660,21 +638,16 @@ app.get('/api/sources/:movieId', async (req, res) => {
         
         const content = processApiResponse(response);
         
-        // Process the sources to extract direct download links with proxy URLs and proper filenames
+        // Process the sources to extract direct download links with proxy URLs
         if (content && content.downloads) {
-            const sources = content.downloads.map(file => {
-                const filename = generateFilename(movieInfo, season, episode, file.resolution);
-                
-                return {
-                    id: file.id,
-                    quality: file.resolution || 'Unknown',
-                    directUrl: file.url,
-                    proxyUrl: `${req.protocol}://${req.get('host')}/api/download/${encodeURIComponent(file.url)}?movieId=${movieId}&season=${season}&episode=${episode}&quality=${encodeURIComponent(file.resolution || '')}`,
-                    filename: filename,
-                    size: file.size,
-                    format: 'mp4'
-                };
-            });
+            const sources = content.downloads.map(file => ({
+                id: file.id,
+                quality: file.resolution || 'Unknown',
+                directUrl: file.url, // Original URL (blocked in browser)
+                proxyUrl: `${req.protocol}://${req.get('host')}/api/download/${encodeURIComponent(file.url)}?movieId=${movieId}&season=${season}&episode=${episode}&quality=${file.resolution || 'unknown'}`, // Proxied URL with proper headers and metadata
+                size: file.size,
+                format: 'mp4'
+            }));
             
             content.processedSources = sources;
         }
@@ -693,13 +666,20 @@ app.get('/api/sources/:movieId', async (req, res) => {
     }
 });
 
-// Enhanced Download proxy endpoint with smart filenames
+// Download proxy endpoint - adds proper headers to bypass CDN restrictions
 app.get('/api/download/*', async (req, res) => {
     try {
         // Extract the download URL and parameters
         const fullPath = req.url.replace('/api/download/', '');
         const [encodedUrl, queryString] = fullPath.split('?');
         const downloadUrl = decodeURIComponent(encodedUrl);
+        
+        // Parse query parameters for metadata
+        const urlParams = new URLSearchParams(queryString || '');
+        const movieId = urlParams.get('movieId');
+        const season = parseInt(urlParams.get('season')) || 0;
+        const episode = parseInt(urlParams.get('episode')) || 0;
+        const quality = urlParams.get('quality') || '';
         
         if (!downloadUrl || (!downloadUrl.startsWith('https://bcdnw.hakunaymatata.com/') && !downloadUrl.startsWith('https://valiw.hakunaymatata.com/'))) {
             return res.status(400).json({
@@ -709,42 +689,34 @@ app.get('/api/download/*', async (req, res) => {
         }
         
         console.log(`Proxying download: ${downloadUrl}`);
+        console.log(`Metadata - MovieID: ${movieId}, Season: ${season}, Episode: ${episode}, Quality: ${quality}`);
         
-        // Parse query parameters for movie info
-        const urlParams = new URLSearchParams(queryString);
-        const movieId = urlParams.get('movieId');
-        const season = parseInt(urlParams.get('season')) || 0;
-        const episode = parseInt(urlParams.get('episode')) || 0;
-        const quality = urlParams.get('quality') || '';
-        
-        let filename = 'movie.mp4'; // Default fallback
-        
-        // Try to get content info from cache or API
+        // Try to get movie info for filename generation
+        let movieInfo = null;
         if (movieId) {
-            let contentInfo = getCachedContentInfo(movieId);
+            // Check cache first
+            movieInfo = movieInfoCache.get(movieId);
             
-            // If not in cache, fetch from API
-            if (!contentInfo) {
+            // If not in cache, try to fetch from API
+            if (!movieInfo) {
                 try {
-                    console.log(`Fetching content info for movieId: ${movieId}`);
+                    console.log(`Fetching movie info for ID: ${movieId}`);
                     const infoResponse = await makeApiRequestWithCookies(`${HOST_URL}/wefeed-h5-bff/web/subject/detail`, {
                         method: 'GET',
                         params: { subjectId: movieId }
                     });
-                    contentInfo = processApiResponse(infoResponse);
-                    cacheContentInfo(movieId, contentInfo);
+                    movieInfo = processApiResponse(infoResponse);
+                    movieInfoCache.set(movieId, movieInfo);
                 } catch (error) {
-                    console.warn('Could not fetch content info, using default filename:', error.message);
+                    console.warn(`Could not fetch movie info for ID ${movieId}:`, error.message);
+                    // Continue with default filename
                 }
-            }
-            
-            // Generate proper filename
-            if (contentInfo) {
-                filename = generateFilename(contentInfo, season, episode, quality);
             }
         }
         
-        console.log(`Using filename: ${filename}`);
+        // Generate proper filename
+        const filename = generateFilename(movieInfo, season, episode, quality);
+        console.log(`Generated filename: ${filename}`);
         
         // Make request with proper headers that allow CDN access
         const response = await axios({
@@ -758,7 +730,7 @@ app.get('/api/download/*', async (req, res) => {
             }
         });
         
-        // Forward the content-type and other relevant headers with proper filename
+        // Forward the content-type and other relevant headers
         res.set({
             'Content-Type': response.headers['content-type'],
             'Content-Length': response.headers['content-length'],
@@ -805,7 +777,6 @@ app.use('*', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`MovieBox API Server running on http://0.0.0.0:${PORT}`);
-    console.log('Enhanced with smart filename detection for downloads!');
 });
 
 module.exports = app;
